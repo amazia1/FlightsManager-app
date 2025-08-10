@@ -9,8 +9,19 @@ export async function fetchFlights() {
   return response.json();
 }
 
+export async function searchFlights(params?: { destination?: string; status?: string }) {
+  const url = new URL(`baseUrl`);
+  if (params?.destination) url.searchParams.set("destination", params.destination);
+  if (params?.status) url.searchParams.set("status", params.status);
+
+  const res = await fetch(url.toString(), { method: "GET" });
+  if (!res.ok) throw new Error(`Failed to fetch flights (${res.status})`);
+
+  return (await res.json()) as { data: Flight[] };
+}
+
 export async function addFlight(flight: CreateFlightDto): Promise<Flight> {
-  const response = await fetch(`${baseUrl}/api/flights`, {
+  const response = await fetch(flightsUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(flight),
@@ -20,7 +31,7 @@ export async function addFlight(flight: CreateFlightDto): Promise<Flight> {
 }
 
 export async function deleteFlight(flightNumber: number): Promise<void> {
-  const response = await fetch(`/api/flights/${flightNumber}`, {
+  const response = await fetch(`${flightsUrl}?flightNumber=${flightNumber}`, {
     method: "DELETE",
   });
   if (!response.ok) throw new Error("Failed to delete flight");
