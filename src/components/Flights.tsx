@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addFlight, deleteFlight, fetchFlights } from "../api/flights";
+import { addFlight, deleteFlight, fetchFlights, searchFlights } from "../api/flights";
 import type { CreateFlightDto, Flight } from "./flights.dtos";
 import { useEffect, useMemo, useState } from "react";
 import { HttpTransportType, HubConnectionBuilder } from "@microsoft/signalr";
@@ -8,33 +8,40 @@ import FlightsForm from "./FlightForm";
 import { formattedDate } from "../shared/app-constants";
 import { PlusSvg } from "../shared/components/svg/PlusSvg";
 import { RemoveSvg } from "../shared/components/svg/RemoveSvg";
+import { CloseSvg } from "../shared/components/svg/CloseSvg";
 
-const baseUrl = import.meta.env.VITE_API_BASE_URL
-const webSocketsUrl = `${baseUrl}/hubs/notifications`
-
-const Flights = () => {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["flights"],
-    queryFn: fetchFlights,
-  });
-
-  const [search, setSearch] = useState("");                // textbox input
-  const [status, setStatus] = useState<string | "">("");   // dropdown
-  const debouncedSearch = useDebounced(search, 300);       // 300ms debounce
-
-  const flightsData: Flight[] = data?.data ?? [];
-
+  const baseUrl = import.meta.env.VITE_API_BASE_URL
+  const webSocketsUrl = `${baseUrl}/hubs/notifications`
   const statuses = ['Scheduled', 'Boarding', 'Departed', 'Landed']
 
-  const filteredData = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    return flightsData.filter(f => {
-      const byDestination = !q || f.destination?.toLowerCase().includes(q);
-      const byStatus = !status || f.status === status;
-      return byDestination && byStatus;
-    });
-  }, [flightsData, debouncedSearch, status]);
+  const Flights = () => {
+  const queryClient = useQueryClient();
+  
+  const [searchInput, setSearchInput] = useState("");
+  const [statusInput, setStatusInput] = useState<string>("");
 
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<string>("");
+
+  const hasFilters = !!search || !!status;
+
+  const baseQuery = useQuery({
+    queryKey: ["flights"],
+    queryFn: fetchFlights,
+    enabled: !hasFilters,
+  });
+
+  const filteredQuery = useQuery({
+    queryKey: ["flights", { destination: search || undefined, status: status || undefined }],
+    queryFn: () => searchFlights({ destination: search || undefined, status: status || undefined }),
+    enabled: hasFilters,
+  });
+
+  const isLoading = baseQuery.isLoading || filteredQuery.isLoading;
+  const error = baseQuery.error || filteredQuery.error as Error | null;
+  const flightsData: Flight[] = (hasFilters ? filteredQuery.data : baseQuery.data)?.data ?? [];
+
+ 
   const deleteFlightMutation = useMutation({
     mutationFn: (flightNumber: number) => deleteFlight(flightNumber),
     onMutate: async (flightNumber) => {
@@ -83,13 +90,11 @@ const Flights = () => {
   ], [deleteFlightMutation]);
 
   const table = useReactTable({
-    //data: data?.data,
-    data: filteredData,
+    data: flightsData,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
 
-  const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
 
   const addFlightMutation = useMutation({
@@ -149,26 +154,16 @@ const Flights = () => {
        <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">
           <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search by destination…"
             className="border rounded px-2 py-1 focus:outline-none"
           />
-          {search && (
-            <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xl"
-              onClick={() => setSearch("")}
-              aria-label="Clear search"
-              title="Clear"
-            >
-              ×
-            </button>
-          )}
         </div>
 
         <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          value={statusInput}
+          onChange={(e) => setStatusInput(e.target.value)}
           className="border rounded px-2 py-1 focus:outline-none"
           aria-label="Filter by status"
         >
@@ -178,12 +173,23 @@ const Flights = () => {
           ))}
         </select>
 
+        <button
+          onClick={() => {
+            setSearch(searchInput.trim());
+            setStatus(statusInput);
+          }}
+          className="py-1 rounded-md border text-white px-3 bg-[#2563EB]"
+        >
+          Search
+        </button>
+
         {(search || status) && (
           <button
             onClick={() => { setSearch(""); setStatus(""); }}
-            className="py-1 rounded-md border px-3"
+            className="text-md flex gap-x-1 items-center mx-3"
           >
-            Clear filters
+            <CloseSvg />
+            <span>Clear Filters</span>
           </button>
         )}
       </div>
@@ -197,8 +203,8 @@ const Flights = () => {
         />
       )}
           
-      <div className="rounded-2xl overflow-hidden">
-        <div className="h-[70dvh] overflow-y-auto">  {/* vertical scroll */}
+      <div className="rounded-2xl border overflow-hidden">
+        <div className="max-h-[70dvh] overflow-y-auto">
           <table className="min-w-full bg-white border-none">
           <thead>
             {table.getHeaderGroups().map(headerGroup => (
@@ -226,12 +232,3 @@ const Flights = () => {
 };
 
 export default Flights;
-
-function useDebounced<T>(value: T, delay: number) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}

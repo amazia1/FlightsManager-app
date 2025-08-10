@@ -10,7 +10,7 @@ export async function fetchFlights() {
 }
 
 export async function searchFlights(params?: { destination?: string; status?: string }) {
-  const url = new URL(`baseUrl`);
+  const url = new URL(`${flightsUrl}/search`);
   if (params?.destination) url.searchParams.set("destination", params.destination);
   if (params?.status) url.searchParams.set("status", params.status);
 
